@@ -1,0 +1,80 @@
+name: MLflow CI
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  MLFLOW_TRACKING_URI: "file://${{ github.workspace }}/mlruns"
+  DATASET_ID: "18avUQ0B2-6cxW_UYF1-KIbGxAXAsdh0O"
+  MLFLOW_ALLOW_FILE_STORE: "true" # <--- BARIS BARU: Mengizinkan penggunaan folder mlruns lokal
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 3. Install dependencies
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install mlflow pandas scikit-learn gdown
+
+      # 4. Download dataset dari Google Drive
+      - name: Download dataset
+        run: |
+          mkdir -p MLProject
+          gdown ${{ env.DATASET_ID }} -O MLProject/anime_preprocessing.csv
+
+      # 5. Run MLflow Project (training) - Ditambahkan --experiment-name
+      - name: Run MLflow Project
+        run: |
+          mlflow run ./MLProject --env-manager=local --experiment-name="anime_score_prediction"
+
+      # 6. Upload MLflow artifacts
+      - name: Upload MLflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlruns
+          path: mlruns
+
+      # 7. Get latest RUN_ID - Ditambahkan filter eksperimen agar akurat
+      - name: Get latest run id
+        run: |
+          RUN_ID=$(python -c "import mlflow; df = mlflow.search_runs(experiment_names=['anime_score_prediction'], order_by=['start_time DESC']); print(df.iloc[0]['run_id'])")
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+
+      # 8. Build Docker image from MLflow model
+      - name: Build Docker Model
+        run: |
+          mlflow models build-docker \
+            --model-uri "runs:/${{ env.RUN_ID }}/model" \
+            --name "anime-model"
+
+      # 9. Login Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      # 10. Tag image
+      - name: Tag Docker Image
+        run: |
+          docker tag anime-model ${{ secrets.DOCKER_HUB_USERNAME }}/anime-model:latest
+
+      # 11. Push image
+      - name: Push Docker Image
+        run: |
+          docker push ${{ secrets.DOCKER_HUB_USERNAME }}/anime-model:latest
