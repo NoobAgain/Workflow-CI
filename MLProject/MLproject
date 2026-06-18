@@ -1,0 +1,11 @@
+﻿name: anime-recommendation
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      data_file: {type: str, default: "anime_preprocessing.csv"}
+      test_size: {type: float, default: 0.2}
+      random_state: {type: int, default: 42}
+    command: "python modelling.py --data_file {data_file} --test_size {test_size} --random_state {random_state}"
